@@ -1,34 +1,47 @@
-const CACHE_NAME = 'belote-score-v1';
+const CACHE_NAME = 'belote-score-v2';
 
-// Liste des fichiers à mettre en cache
-const ASSETS = [
-  'index.html',
-  'style.css',
-  'app.js',
-  'model/best.onnx',
-  'https://cdn.tailwindcss.com',
-  'https://unpkg.com/lucide@latest',
-  'https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort.min.js'
+const LOCAL_ASSETS = [
+  './',
+  './index.html',
+  './style.css',
+  './app.js'
 ];
 
+// Installation : Mise en cache des fichiers locaux
 self.addEventListener('install', (e) => {
   e.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
-      // ignoreSearch: true pour éviter les problèmes de requêtes
-      return cache.addAll(ASSETS);
+      return cache.addAll(LOCAL_ASSETS);
     })
   );
   self.skipWaiting();
 });
 
 self.addEventListener('activate', (e) => {
-  e.waitUntil(clients.claim());
+  e.waitUntil(
+    caches.keys().then((keys) => {
+      return Promise.all(
+        keys.map((key) => {
+          if (key !== CACHE_NAME) return caches.delete(key);
+        })
+      );
+    })
+  );
+  self.clients.claim();
 });
 
+// Stratégie Réseau d'abord, sinon Cache (permet d'ouvrir hors-ligne)
 self.addEventListener('fetch', (e) => {
   e.respondWith(
-    caches.match(e.request).then((response) => {
-      return response || fetch(e.request);
-    })
+    fetch(e.request)
+      .then((response) => {
+        // Sauvegarder en cache au fur et à mesure
+        if (response.status === 200) {
+            const resClone = response.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(e.request, resClone));
+        }
+        return response;
+      })
+      .catch(() => caches.match(e.request))
   );
 });
