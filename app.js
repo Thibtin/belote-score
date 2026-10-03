@@ -375,31 +375,34 @@ let currentScannerTrump = 'H';
 
 let videoStream = null;
 
+// Réinitialisation de l'affichage vidéo à l'ouverture du scanner
 async function openScannerModal() {
-    document.getElementById('cameraFeed').style.backgroundImage = 'none';
     document.getElementById('scannerModal').classList.remove('hidden');
     document.getElementById('detectionsOverlay').classList.add('hidden');
     document.getElementById('detectedCount').innerText = '0';
     document.getElementById('detectedPoints').innerText = '0';
     document.getElementById('applyScanBtn').classList.add('hidden');
     document.getElementById('scanTriggerBtn').classList.remove('hidden');
+    
+    // Réafficher la vidéo et masquer l'aperçu photo
+    const video = document.getElementById('cameraFeed');
+    const previewCanvas = document.getElementById('photoPreview');
+    video.classList.remove('hidden');
+    previewCanvas.classList.add('hidden');
+
     selectScannerTrump('H');
 
-    // Démarrage de la caméra arrière du téléphone
     try {
-        const video = document.getElementById('cameraFeed');
         videoStream = await navigator.mediaDevices.getUserMedia({
-            video: { facingMode: { exact: "environment" } } // Force la caméra arrière
+            video: { facingMode: { exact: "environment" } }
         });
         video.srcObject = videoStream;
     } catch (err) {
-        console.warn("Caméra arrière indisponible, essai avec caméra par défaut...", err);
         try {
-            const video = document.getElementById('cameraFeed');
             videoStream = await navigator.mediaDevices.getUserMedia({ video: true });
             video.srcObject = videoStream;
         } catch (e) {
-            alert("Impossible d'accéder à la caméra. Vérifie les autorisations dans ton navigateur.");
+            alert("Impossible d'accéder à la caméra.");
         }
     }
 }
@@ -431,6 +434,7 @@ async function runYoloDetection() {
     const applyBtn = document.getElementById('applyScanBtn');
     const overlay = document.getElementById('detectionsOverlay');
     const video = document.getElementById('cameraFeed');
+    const previewCanvas = document.getElementById('photoPreview');
 
     if (!video || !video.videoWidth) {
         alert("La caméra n'est pas encore prête.");
@@ -441,26 +445,23 @@ async function runYoloDetection() {
     scanBtn.disabled = true;
 
     try {
-        // 1. DESSINER LA PHOTO FIGÉE SUR UN CANVAS PERMANENT
-        const photoCanvas = document.createElement('canvas');
-        photoCanvas.width = video.videoWidth;
-        photoCanvas.height = video.videoHeight;
-        const photoCtx = photoCanvas.getContext('2d');
-        photoCtx.drawImage(video, 0, 0, photoCanvas.width, photoCanvas.height);
+        // 1. CAPTURER L'IMAGE DE LA VIDÉO SUR LE CANEVAS DE PRÉVISUALISATION
+        previewCanvas.width = video.videoWidth;
+        previewCanvas.height = video.videoHeight;
+        const pCtx = previewCanvas.getContext('2d');
+        pCtx.drawImage(video, 0, 0, previewCanvas.width, previewCanvas.height);
 
-        // 2. ÉTEINDRE LA CAMÉRA IMMÉDIATEMENT POUR FIGER L'IMAGE
+        // 2. MASQUER LA VIDÉO ET AFFICHER LE CANEVAS AVEC LA PHOTO
+        video.classList.add('hidden');
+        previewCanvas.classList.remove('hidden');
+
+        // 3. ÉTEINDRE LA CAMÉRA POUR ÉCONOMISER LA BATTERIE
         if (videoStream) {
             videoStream.getTracks().forEach(track => track.stop());
             videoStream = null;
         }
 
-        // Remplacer la vidéo active par la photo capturée dans le viseur
-        video.pause();
-        video.style.backgroundImage = `url(${photoCanvas.toDataURL('image/jpeg')})`;
-        video.style.backgroundSize = 'cover';
-        video.style.backgroundPosition = 'center';
-
-        // 3. PRÉPARER L'IMAGE DANS LE FORMAT 640x640 POUR YOLO
+        // 4. PRÉPARER L'IMAGE DANS LE FORMAT 640x640 POUR YOLO
         if (!yoloSession) {
             yoloSession = await ort.InferenceSession.create('./model/best.onnx');
         }
@@ -468,10 +469,10 @@ async function runYoloDetection() {
         const yoloCanvas = document.createElement('canvas');
         yoloCanvas.width = 640;
         yoloCanvas.height = 640;
-        const yoloCtx = yoloCanvas.getContext('2d');
-        yoloCtx.drawImage(photoCanvas, 0, 0, 640, 640);
+        const yCtx = yoloCanvas.getContext('2d');
+        yCtx.drawImage(previewCanvas, 0, 0, 640, 640);
         
-        const { data } = yoloCtx.getImageData(0, 0, 640, 640);
+        const { data } = yCtx.getImageData(0, 0, 640, 640);
 
         // Conversion RGBA -> Tensor Float32 [1, 3, 640, 640]
         const red = [], green = [], blue = [];
@@ -482,13 +483,13 @@ async function runYoloDetection() {
         }
         const tensor = new ort.Tensor('float32', Float32Array.from([...red, ...green, ...blue]), [1, 3, 640, 640]);
 
-        // 4. EXÉCUTER LE MODÈLE SUR LA PHOTO FIGÉE
+        // 5. EXÉCUTER L'INFÉRENCE YOLO
         const outputs = await yoloSession.run({ images: tensor });
         const output = outputs[Object.keys(outputs)[0]];
 
         const detections = processDetections(output.data, currentScannerTrump);
 
-        // 5. AFFICHER LES CADRES SUR LA PHOTO CAPTURÉE
+        // 6. AFFICHER LES CADRES PAR-DESSUS LA PHOTO FIGÉE
         overlay.innerHTML = '';
         overlay.classList.remove('hidden');
 
