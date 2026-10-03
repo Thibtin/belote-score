@@ -373,7 +373,9 @@ const BELOTE_VALUES = {
 let yoloSession = null;
 let currentScannerTrump = 'H';
 
-function openScannerModal() {
+let videoStream = null;
+
+async function openScannerModal() {
     document.getElementById('scannerModal').classList.remove('hidden');
     document.getElementById('detectionsOverlay').classList.add('hidden');
     document.getElementById('detectedCount').innerText = '0';
@@ -381,10 +383,33 @@ function openScannerModal() {
     document.getElementById('applyScanBtn').classList.add('hidden');
     document.getElementById('scanTriggerBtn').classList.remove('hidden');
     selectScannerTrump('H');
+
+    // Démarrage de la caméra arrière du téléphone
+    try {
+        const video = document.getElementById('cameraFeed');
+        videoStream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: { exact: "environment" } } // Force la caméra arrière
+        });
+        video.srcObject = videoStream;
+    } catch (err) {
+        console.warn("Caméra arrière indisponible, essai avec caméra par défaut...", err);
+        try {
+            const video = document.getElementById('cameraFeed');
+            videoStream = await navigator.mediaDevices.getUserMedia({ video: true });
+            video.srcObject = videoStream;
+        } catch (e) {
+            alert("Impossible d'accéder à la caméra. Vérifie les autorisations dans ton navigateur.");
+        }
+    }
 }
 
 function closeScannerModal() {
     document.getElementById('scannerModal').classList.add('hidden');
+    // Éteindre la caméra pour économiser la batterie
+    if (videoStream) {
+        videoStream.getTracks().forEach(track => track.stop());
+        videoStream = null;
+    }
 }
 
 function selectScannerTrump(suit) {
