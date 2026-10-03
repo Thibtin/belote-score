@@ -376,6 +376,7 @@ let currentScannerTrump = 'H';
 let videoStream = null;
 
 async function openScannerModal() {
+    document.getElementById('cameraFeed').style.backgroundImage = 'none';
     document.getElementById('scannerModal').classList.remove('hidden');
     document.getElementById('detectionsOverlay').classList.add('hidden');
     document.getElementById('detectedCount').innerText = '0';
@@ -431,24 +432,48 @@ async function runYoloDetection() {
     const overlay = document.getElementById('detectionsOverlay');
     const video = document.getElementById('cameraFeed');
 
-    scanBtn.innerText = "Chargement du modèle...";
+    if (!video || !video.videoWidth) {
+        alert("La caméra n'est pas encore prête.");
+        return;
+    }
+
+    scanBtn.innerText = "Capture & Analyse...";
     scanBtn.disabled = true;
 
     try {
+        // 1. DESSINER LA PHOTO FIGÉE SUR UN CANVAS PERMANENT
+        const photoCanvas = document.createElement('canvas');
+        photoCanvas.width = video.videoWidth;
+        photoCanvas.height = video.videoHeight;
+        const photoCtx = photoCanvas.getContext('2d');
+        photoCtx.drawImage(video, 0, 0, photoCanvas.width, photoCanvas.height);
+
+        // 2. ÉTEINDRE LA CAMÉRA IMMÉDIATEMENT POUR FIGER L'IMAGE
+        if (videoStream) {
+            videoStream.getTracks().forEach(track => track.stop());
+            videoStream = null;
+        }
+
+        // Remplacer la vidéo active par la photo capturée dans le viseur
+        video.pause();
+        video.style.backgroundImage = `url(${photoCanvas.toDataURL('image/jpeg')})`;
+        video.style.backgroundSize = 'cover';
+        video.style.backgroundPosition = 'center';
+
+        // 3. PRÉPARER L'IMAGE DANS LE FORMAT 640x640 POUR YOLO
         if (!yoloSession) {
             yoloSession = await ort.InferenceSession.create('./model/best.onnx');
         }
 
-        scanBtn.innerText = "Analyse en cours...";
-
-        const canvas = document.createElement('canvas');
-        canvas.width = 640;
-        canvas.height = 640;
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(video, 0, 0, 640, 640);
+        const yoloCanvas = document.createElement('canvas');
+        yoloCanvas.width = 640;
+        yoloCanvas.height = 640;
+        const yoloCtx = yoloCanvas.getContext('2d');
+        yoloCtx.drawImage(photoCanvas, 0, 0, 640, 640);
         
-        const { data } = ctx.getImageData(0, 0, 640, 640);
+        const { data } = yoloCtx.getImageData(0, 0, 640, 640);
 
+        // Conversion RGBA -> Tensor Float32 [1, 3, 640, 640]
         const red = [], green = [], blue = [];
         for (let i = 0; i < data.length; i += 4) {
             red.push(data[i] / 255.0);
@@ -457,11 +482,13 @@ async function runYoloDetection() {
         }
         const tensor = new ort.Tensor('float32', Float32Array.from([...red, ...green, ...blue]), [1, 3, 640, 640]);
 
+        // 4. EXÉCUTER LE MODÈLE SUR LA PHOTO FIGÉE
         const outputs = await yoloSession.run({ images: tensor });
         const output = outputs[Object.keys(outputs)[0]];
 
         const detections = processDetections(output.data, currentScannerTrump);
 
+        // 5. AFFICHER LES CADRES SUR LA PHOTO CAPTURÉE
         overlay.innerHTML = '';
         overlay.classList.remove('hidden');
 
@@ -469,12 +496,12 @@ async function runYoloDetection() {
         detections.forEach(det => {
             totalPts += det.points;
             const box = document.createElement('div');
-            box.className = 'absolute border-2 border-teal-400 bg-teal-500/30 rounded px-1 text-[10px] text-white font-bold';
+            box.className = 'absolute border-2 border-yellow-400 bg-yellow-500/30 rounded px-1.5 py-0.5 text-xs text-black font-extrabold shadow-lg z-30';
             box.style.left = `${(det.x / 640) * 100}%`;
             box.style.top = `${(det.y / 640) * 100}%`;
             box.style.width = `${(det.w / 640) * 100}%`;
             box.style.height = `${(det.h / 640) * 100}%`;
-            box.innerText = `${det.label} (${det.points}pt)`;
+            box.innerHTML = `<span class="bg-yellow-400 px-1 rounded">${det.label}</span> (${det.points}pt)`;
             overlay.appendChild(box);
         });
 
@@ -486,7 +513,7 @@ async function runYoloDetection() {
 
     } catch (e) {
         console.error("YOLO Error:", e);
-        alert("Erreur de détection : " + e.message);
+        alert("Erreur lors de l'analyse : " + e.message);
     } finally {
         scanBtn.innerText = "Scanner le pli";
         scanBtn.disabled = false;
