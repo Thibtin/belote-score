@@ -210,8 +210,13 @@
             </div>
 
             <div class="relative my-auto w-full aspect-[3/4] bg-gray-900 rounded-2xl border-2 border-dashed border-teal-500/50 overflow-hidden flex items-center justify-center">
-                <!-- Flux vidéo ou canvas -->
+                <!-- Flux vidéo en direct -->
                 <video id="cameraFeed" autoplay playsinline class="w-full h-full object-cover"></video>
+                
+                <!-- Photo capturée figeant l'image (Masquée par défaut) -->
+                <canvas id="photoPreview" class="absolute inset-0 w-full h-full object-cover hidden"></canvas>
+            
+                <!-- Calque pour afficher les cadres YOLO -->
                 <div id="detectionsOverlay" class="absolute inset-0 pointer-events-none hidden"></div>
             </div>
 
